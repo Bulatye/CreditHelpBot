@@ -7,22 +7,22 @@ import config
 from data_strings import *
 
 bot = telebot.TeleBot(config.TOKEN)
-
-user_data = {"face": "ООО"}
-
+user_data = {}
+counter_owners = 0
 URL_credit_report = "https://credistory.ru/credithistory?utm_source=bki-okb.ru&utm_medium=referral&utm_campaign=site&utm_content=b2c_block&utm_term="
 
-# реагирует на команду start
 @bot.message_handler(commands=['start'])
 def start(message):
     '''реагирует на команду start'''
+
     start_position(message)
     print(user_data)
 
 
-# Выполняет стартовые действия. Написана отдельной функцией для того, чтобы вызывать из функций не позволяющих
-# из-за своего потока принять команду декоратором
 def start_position(message):
+    '''Выполняет стартовые действия. Написана отдельной функцией для того, чтобы вызывать из функций не позволяющих
+    из-за своего потока принять команду декоратором'''
+
     user_data.clear()
     img = open("greetings.jpg", 'rb')
     bot.send_photo(message.chat.id, img, greetings_text.format(message.from_user.first_name))
@@ -30,16 +30,17 @@ def start_position(message):
     img.close()
 
 
-# проверят тип контента в message
 def check_content_type(message, type):
-    # обрабатываем только сообщения с типом данных текст
+    '''проверят тип контента в message
+    обрабатываем только сообщения с типом данных текст'''
+
     if message.content_type != type:
         return False
     return True
 
 
-# проверят команду /start
 def check_command_start(message):
+    '''Проверят команду /start'''
     # если пользователь вводит команду старт, переводим его на стартовую функцию
     if message.text == "/start":
         start_position(message)
@@ -47,16 +48,16 @@ def check_command_start(message):
     return True
 
 
-# Выводит сообщение и переводит на определенную функцию.
 def process_message_step(message, message_text, callback):
+    '''Выводит сообщение и переводит на определенную функцию.'''
     # логирование
     log_bot(message, message.text)
     bot.send_message(message.chat.id, message_text)
     bot.register_next_step_handler(message, callback)
 
 
-# Выводит сообщение, callback кнопки.
 def process_message_markup(message, message_text, amount, *args):
+    '''Выводит сообщение, callback кнопки.'''
     # логирование
     log_bot(message, message.text)
 
@@ -68,8 +69,9 @@ def process_message_markup(message, message_text, amount, *args):
     bot.send_message(message.chat.id, text=message_text, reply_markup=markup)
 
 
-# cкачивает документ локально
+
 def download_document(message):
+    '''cкачивает документ локально'''
     file_info = bot.get_file(message.document.file_id)
 
     downloaded_file = bot.download_file(file_info.file_path)
@@ -81,8 +83,8 @@ def download_document(message):
     return src
 
 
-# cкачивает фото локально
 def download_photo(message):
+    '''cкачивает фото локально'''
     photo = message.photo[-1]
     file_info = bot.get_file(photo.file_id)
     file_path = file_info.file_path
@@ -105,9 +107,13 @@ def log_bot(message, text):
     date_only = now.strftime("%Y-%m-%d-%H-%M")
     print(f"Имя:{message.from_user.first_name} время: {date_only} введенные данные: {text}")
 
-# проверяет корректность ввода телефона, выводит текст в чат
-# с просьбой ввести фио
+
 def process_phone_step(message):
+    '''проверяет корректность ввода телефона, выводит текст в чат
+    с просьбой ввести фио'''
+    if user_data == {}:
+        start_position(message)
+
     if check_content_type(message, "text"):
         if not check_command_start(message):
             return None
@@ -123,13 +129,25 @@ def process_phone_step(message):
     process_message_step(message, error_input_phone_text, process_phone_step)
 
 
-# обработка фио, запрос лица
 def process_fio_step(message):
+    '''обработка фио, запрос лица'''
+    if user_data == {}:
+        start_position(message)
+        return None
+
     if check_content_type(message, "text"):
         if not check_command_start(message):
             return None
+
+        # Проверка на наличие цифр в введенных данных.
+        for i in message.text:
+            if not i.isdigit():
+                process_message_step(message, "В ФИО не должно быть цифр!", process_inn_step)
+                return None
+
         # удаляем возможные пробелы в начале и конце строки и формируем список
         list_message_FIO = message.text.strip(' ').split(' ')
+
         # производим проверку корректности введенного текста
         if len(list_message_FIO) == 3:
             # запрашиваем лицо
@@ -140,15 +158,24 @@ def process_fio_step(message):
     process_message_step(message, error_FIO, process_fio_step)
 
 
-# обработка лица, запрашиваем инн
 @bot.callback_query_handler(func=lambda c: c.data in face_arr)
 def process_face_step(callback):
+    '''обработка лица, запрашиваем инн'''
+    if user_data == {}:
+        start_position(callback.message)
+        return None
+
     user_data["face"] = callback.data
     process_message_step(callback.message, inn_text, process_inn_step)
 
 
-# обработка инн, запрос снилс
+
 def process_inn_step(message):
+    '''обработка инн, запрос снилс'''
+    if user_data == {}:
+        start_position(message)
+        return None
+
     if check_content_type(message, "text"):
         if not check_command_start(message):
             return None
@@ -165,8 +192,13 @@ def process_inn_step(message):
         process_message_step(message, error_text, process_inn_step)
 
 
-# Обрабатываем текст снилса, запрашиваем ввод региона
+
 def process_snils_step(message):
+    '''Обрабатываем текст снилса, запрашиваем ввод региона'''
+    if user_data == {}:
+        start_position(message)
+        return None
+
     if check_content_type(message, "text"):
         if not check_command_start(message):
             return None
@@ -183,13 +215,18 @@ def process_snils_step(message):
         process_message_step(message, error_text, process_snils_step)
 
 
-# обработка региона, запрашиваем сумму кредита
+
 def peocess_region_step(message):
+    '''обработка региона, запрашиваем сумму кредита'''
+    if user_data == {}:
+        start_position(message)
+        return None
+
     if check_content_type(message, "text"):
         if not check_command_start(message):
             return None
 
-        if len(message.text) > 2 and not any(char.isdigit() for char in message.text):
+        if len(message.text) > 1 and not any(char.isdigit() for char in message.text):
             user_data['region'] = message.text
             process_message_markup(message, choose_face, 4, *credit_sums)
             return None
@@ -198,15 +235,24 @@ def peocess_region_step(message):
     process_message_step(message, error_text, peocess_region_step)
 
 
-# обработка суммы, запрашиваем фото паспорта
+
 @bot.callback_query_handler(func=lambda c: c.data in credit_sums)
 def process_sum_step(callback):
+    '''обработка суммы, запрашиваем фото паспорта'''
+    if user_data == {}:
+        start_position(callback.message)
+        return None
+
     user_data["credit_sum"] = callback.data
     process_message_step(callback.message, pasport_text, process_passport_step)
 
 
-# обработка фото пасспорта, запрашиваем кредитный отчет
 def process_passport_step(message):
+    '''обработка фото пасспорта, запрашиваем кредитный отчет'''
+    if user_data == {}:
+        start_position(message)
+        return None
+
     if check_content_type(message, "photo"):
 
         try:
@@ -228,11 +274,16 @@ def process_passport_step(message):
             return None
 
         # Выводим сообщение об ошибке если условия оказалось ложными, запускаем функцию повторно
-        process_message_step(message, error_text, process_passport)
+        process_message_step(message, error_text, process_passport_step)
 
 
-# обработка кредитного отчета, запрашиваем продукт
+
 def process_credit_report_step(message):
+    '''обработка кредитного отчета, запрашиваем продукт'''
+    if user_data == {}:
+        start_position(message)
+        return None
+
     if check_content_type(message, "document"):
         try:
             user_data["credit_report"] = download_document(message)
@@ -248,9 +299,13 @@ def process_credit_report_step(message):
         process_message_step(message, error_text, process_credit_report_step)
 
 
-# обработка продукта
 @bot.callback_query_handler(func=lambda c: c.data == 'Кредит')
 def process_product_step(callback):
+    '''обработка продукта'''
+    if user_data == {}:
+        start_position(callback.message)
+        return None
+
     user_data["service"] = 'Кредит'
 
     # если пользователь физ. лицо, проводим его по первой ветке
@@ -261,49 +316,74 @@ def process_product_step(callback):
         process_message_step(callback.message, bank_statement_text, process_bank_statement)
 
 
-# обработка семейного статуса, запрашиваем справку с места работы
 @bot.callback_query_handler(func=lambda c: c.data in families_status_arr)
 def process_family_status(callback):
+    '''обработка семейного статуса, запрашиваем справку с места работы'''
+    if user_data == {}:
+        start_position(callback.message)
+        return None
+
     user_data["family_status"] = callback.data
 
     process_message_step(callback.message, certificate_work, proccess_certificate_work)
 
 
 
-# обработка справки с места работы, выводим сообщение об окончании ввода данных
+
 def proccess_certificate_work(message):
+    '''Обработка справки с места работы, выводим сообщение об окончании ввода данных'''
+    if user_data == {}:
+        start_position(message)
+        return None
+
     try:
         if check_content_type(message, "document"):
             user_data["certificate_work"] = download_document(message)
+            
+            # конечный шаг пользовательского ввода
+            # выводим сообщение с просьбой ожидания обработки введенных данных
             bot.send_message(message.chat.id, end_text)
+
+            # результирующий набор данных
+            for key, value in user_data.items():
+                print("{0}: {1}".format(key,value))
+        
             
             # логирование
             log_bot(message, message.text)
 
         elif check_content_type(message, "photo"):
             user_data["certificate_work"] = download_photo(message)
-            bot.send_message(message.chat.id, end_text)
-            # логирование
-            log_bot(message, message.text)
 
-            print(user_data)
+            # конечный шаг пользовательского ввода
+            # выводим сообщение с просьбой ожидания обработки введенных данных
+            bot.send_message(message.chat.id, end_text)
+
+            # результирующий набор данных
+            for key, value in user_data.items():
+                print("{0}: {1}".format(key,value))
             
         elif not check_command_start(message):
             return None
 
         else:
+            print("not doc and photo")
             # Выводим сообщение об ошибке если условия оказалось ложными, запускаем функцию повторно
             process_message_step(message, file_certificate_work_error, proccess_certificate_work)
 
-    except Exception:
+    except Exception as es:
         process_message_step(message, file_certificate_work_error, proccess_certificate_work)
 
 
-# Обработка выписки с счета, спрашиваем о наличии задолжности
 def process_bank_statement(message):
+    '''Обработка выписки с счета, спрашиваем о наличии задолжности'''
+    if user_data == {}:
+        start_position(message)
+        return None
+
     if check_content_type(message, "document"):
         try:
-            user_data["process_bank"] = download_document(message)
+            user_data["bank_statement"] = download_document(message)
             process_message_markup(message, debt_text, 2, *debt_arr)
 
         except Exception as e:
@@ -315,17 +395,25 @@ def process_bank_statement(message):
         process_message_step(message, error_text, process_bank_statement)
 
 
-# обработка наличия заложности, запрашиваем выписку 1с
 @bot.callback_query_handler(func=lambda c: c.data in debt_arr)
 def proccess_debt_step(callback):
+    '''обработка наличия заложности, запрашиваем выписку 1с'''
+    if user_data == {}:
+        start_position(callback.message)
+        return None
+
     user_data["debt"] = callback.data
 
     process_message_markup(callback.message, extract_1s_text, 2, *extract_1s_arr)
 
 
-# обработка выписки 1с и текст завершения
 @bot.callback_query_handler(func=lambda c: c.data in extract_1s_arr)
 def process_extract_1s(callback):
+    '''обработка выписки 1с и текст завершения'''
+    if user_data == {}:
+        start_position(callback.message)
+        return None
+
     if callback.data == extract_1s_arr[0]:
         process_message_step(callback.message, extract_1s_file_text, process_extract_1s_file)
     elif callback.data == extract_1s_arr[1]:
@@ -339,14 +427,25 @@ def process_extract_1s(callback):
             process_message_markup(callback.message, ooo_answer_text, 2, *ooo_answer_arr)
 
 
-# Скачивание 1с файла
 def process_extract_1s_file(message):
+    '''Скачивание 1с файла'''
+    if user_data == {}:
+        start_position(message)
+        return None
+
     if check_content_type(message, "document"):
         try:
             user_data["extract_1s"] = download_document(message)
 
             if user_data["face"] == "ИП":
+                # конечный шаг пользовательского ввода
+                # выводим сообщение с просьбой ожидания обработки введенных данных
                 bot.send_message(message.chat.id, end_text)
+
+                # результирующий набор данных
+                for key, value in user_data.items():
+                    print("{0}: {1}".format(key,value))
+
             elif user_data["face"] == "ООО":
                 # спрашиваем является ли человек единственным учредителем
                 process_message_markup(message, ooo_answer_text, 2, *ooo_answer_arr)
@@ -361,18 +460,35 @@ def process_extract_1s_file(message):
         process_message_step(message, error_text, process_extract_1s_file)
 
 
-# обработка вопроса о кол-ве учредителей
 @bot.callback_query_handler(func=lambda c: c.data in ooo_answer_arr)
 def proccess_debt_step(callback):
+    '''обработка вопроса о кол-ве учредителей'''
+    print(user_data)
+    if user_data == {}:
+        start_position(callback.message)
+        return None
+
     if callback.data == ooo_answer_arr[0]:
+
+        # конечный шаг пользовательского ввода
+        # выводим сообщение с просьбой ожидания обработки введенных данных
         bot.send_message(callback.message.chat.id, end_text)
+
+        # результирующий набор данных
+        for key, value in user_data.items():
+            print("{0}: {1}".format(key,value))
+
         user_data["count_owners"] = 1
     elif callback.data == ooo_answer_arr[1]:
         process_message_step(callback.message, ooo_count_owners, process_count_owners)
 
 
-# Обработка количества учредителей, запрашиваем фамилии каждого из них
 def process_count_owners(message):
+    '''Обработка количества учредителей, запрашиваем фамилии каждого из них'''
+    if user_data == {}:
+        start_position(message)
+        return None
+
     if check_content_type(message, "text"):
         if not check_command_start(message):
             return None
@@ -385,7 +501,7 @@ def process_count_owners(message):
         user_data["count_owners"] = int(message.text)
         # Просим ввести фио каждого учредитея
         
-        bot.send_message(message.chat.id, f"{ooo_fio_owner} 3")
+        bot.send_message(message.chat.id, f"{ooo_fio_owner} 1")
         bot.register_next_step_handler(message, process_fio_owner)
 
     else:
@@ -394,18 +510,29 @@ def process_count_owners(message):
 
 
 def process_fio_owner(message):
+    if user_data == {}:
+        start_position(message)
+        return None
+
     if check_content_type(message, "text"):
         if not check_command_start(message):
             return None
 
+        # Проверка на наличие цифр в введенных данных.
+        for i in message.text:
+            if not i.isdigit():
+                process_message_step(message, "В ФИО не должно быть цифр!", process_inn_step)
+                return None
 
-        if (user_data["count_owners"] > 0):
+        global counter_owners 
 
+        if (counter_owners < user_data["count_owners"]):
+            print(counter_owners)
             fio_list = message.text.split()
 
             if len(fio_list) != 3:
                 # Выводим сообщение об ошибке если условия оказалось ложными, запускаем функцию повторно
-                process_message_step(message, f"{ooo_fio_owner} {user_data['count_owners']}", check_content_type)
+                process_message_step(message, f"{error_FIO_owner} {ooo_fio_owner} {counter_owners + 1}", process_fio_owner)
                 return None
 
             if "fio_owners" not in user_data.keys():
@@ -414,37 +541,54 @@ def process_fio_owner(message):
             user_data["fio_owners"].append(message.text)
           
 
-            user_data["count_owners"] -= 1
-            bot.send_message(message.chat.id, f"{ooo_fio_owner} {user_data['count_owners']}")
+            counter_owners += 1
+
+            if counter_owners < user_data["count_owners"]:
+                bot.send_message(message.chat.id, f"{ooo_fio_owner} {counter_owners + 1}")
+            else:
+                process_message_step(message, ooo_data_partner, process_data_partner)
+                print(user_data["fio_owners"])
+                user_data["count_owners"] = len(user_data["fio_owners"])
+                counter_owners = 0
+                return None
+
             bot.register_next_step_handler(message, process_fio_owner)
-        else:
-            process_message_step(message, ooo_data_partner, process_data_partner)
-            user_data["count_owners"] = len(user_data["fio_owners"])
 
 
 def process_data_partner(message):
+    if user_data == {}:
+        start_position(message)
+        return None
+
     if check_content_type(message, "document"):
         try:
             user_data["data_partner"] = download_document(message)
-            bot.send_message(message.chat.id, f"{credit_report_parnter} {user_data['count_owners']} в формате pdf")
-            bot.register_next_step_handler(message, process_credit_report_parnter)
+            bot.send_message(message.chat.id, f"{credit_report_parnter} 1 в формате pdf")
+            bot.register_next_step_handler(message, process_credit_report_parnters)
 
         except Exception as e:
+            print(str(e))
             process_message_step(message, error_text, process_data_partner)
     else:
         if not check_command_start(message):
             return None
+        print("fuck")
         # Выводим сообщение об ошибке если условия оказалось ложными, запускаем функцию повторно
         process_message_step(message, error_text, process_data_partner)
 
 
-def process_credit_report_parnters():
-    if check_content_type(message, "text"):
+def process_credit_report_parnters(message):
+    if user_data == {}:
+        start_position(message)
+        return None
+
+    if check_content_type(message, "document"):
         if not check_command_start(message):
             return None
 
+        global counter_owners
 
-        if (user_data["count_owners"] > 0):
+        if (counter_owners < user_data["count_owners"]):
 
             try:
                 if "credit_report_parnters" not in user_data.keys():
@@ -452,20 +596,26 @@ def process_credit_report_parnters():
 
                 user_data["credit_report_parnters"].append(download_document(message))
 
-                user_data["count_owners"] -= 1
-
-                bot.send_message(message.chat.id, f"{credit_report_parnter} {user_data['count_owners']} в формате pdf")
-                bot.register_next_step_handler(message, process_credit_report_parnters)
+                counter_owners += 1
+                if (counter_owners < user_data["count_owners"]):
+                    bot.send_message(message.chat.id, f"{credit_report_parnter} {counter_owners + 1} в формате pdf")
+                    bot.register_next_step_handler(message, process_credit_report_parnters)
+                else:
+                    # конечный шаг пользовательского ввода
+                    # выводим сообщение с просьбой ожидания обработки введенных данных
+                    bot.send_message(message.chat.id, end_text)
+                    # результирующий набор данных
+                    for key, value in user_data.items():
+                        print("{0}: {1}".format(key,value))
+                    counter_owners = 0
 
             
 
             except Exception as e:
                 process_message_step(message, error_text, process_credit_report_parnters)
-        else:
-            bot.send_message(message.chat.id, end_text)
-            user_data["count_owners"] = len(user_data["fio_owners"])
+            
     else:
-        process_message_step(message, ooo_data_partner, process_credit_report_parnters)
+        process_message_step(message, error_text, process_credit_report_parnters)
 
 
 bot.polling(none_stop=True)
